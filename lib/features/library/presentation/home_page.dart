@@ -34,7 +34,7 @@ class _HomeState extends State<Home> {
 
   void _rescanFiles() {
     if (controller.doneInit.isTrue) {
-      controller.audioHandler.stop();
+      controller.audioHandler.clear();
       controller.initFalse();
       controller.getSongs(refreshArt: true);
       scaffoldKey.currentState?.closeDrawer();

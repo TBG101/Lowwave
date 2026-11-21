@@ -1,12 +1,16 @@
 import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:musicplayer/features/player/data/data_audio_position.dart';
 import 'package:rxdart/rxdart.dart';
 
 Future<AudioPlayerHandler> initAudioService() async {
+  final session = await AudioSession.instance;
+  await session.configure(const AudioSessionConfiguration.music());
+
   return await AudioService.init(
     builder: () => AudioPlayerHandler(),
     config: const AudioServiceConfig(
@@ -59,7 +63,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     final wasPlaying = _player.playing;
 
     if (items.isEmpty) {
-      await stop();
+      await clear();
       super.queue.value = [];
       return;
     }
@@ -105,7 +109,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     final next = List<MediaItem>.of(queue.value)..removeAt(index);
     if (next.isEmpty) {
       queue.add(next);
-      await stop();
+      await clear();
       return;
     }
     await _player.removeAudioSourceAt(index);
@@ -144,8 +148,17 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> seek(Duration position) async => _player.seek(position);
 
+  /// Stops playback and dismisses the media notification while keeping the
+  /// current [mediaItem], queue, and position intact so the user can resume.
   @override
   Future<void> stop() async {
+    await _player.pause();
+    await super.stop();
+  }
+
+  /// Fully resets the player and clears the current [mediaItem] and queue
+  /// (used when rescanning the library or when the queue becomes empty).
+  Future<void> clear() async {
     await _player.stop();
     await _player.clearAudioSources();
     mediaItem.add(null);
@@ -158,6 +171,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
         queueIndex: null,
       ),
     );
+    await super.stop();
   }
 
   Future<void> switchShuffle() async {
