@@ -51,7 +51,7 @@ class YoutubeHomePage extends StatelessWidget {
           child: AnimationSearchBar(
             onChanged: (text) {},
             onClosed: () {
-              controller.textController.value.clear();
+              controller.searchController.value.clear();
             },
             closeIconColor: scheme.onSurface,
             isBackButtonVisible: true,
@@ -63,7 +63,7 @@ class YoutubeHomePage extends StatelessWidget {
             centerTitleStyle:
                 textTheme.titleMedium?.copyWith(color: scheme.onSurface) ??
                     TextStyle(color: scheme.onSurface, fontSize: 18),
-            searchTextEditingController: controller.textController.value,
+            searchTextEditingController: controller.searchController.value,
             horizontalPadding: 5,
             centerWidget: titleWidget(context),
             onDrawerOpen: () {
@@ -127,7 +127,7 @@ class YoutubeHomePage extends StatelessWidget {
           ),
         ),
         appBar: appbarWdget(context),
-        body: const Center(child: VideoList()),
+        body: Center(child: VideoList()),
       ),
     );
   }

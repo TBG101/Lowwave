@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:get/get.dart';
+import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 import 'package:musicplayer/features/library/controller/library_controller.dart';
 import 'package:musicplayer/features/youtube/data/download_queue.dart';
 import 'package:musicplayer/features/youtube/data/download_task.dart';
@@ -28,47 +29,51 @@ class YoutubeController extends GetxController {
   final _manifestService = YoutubeManifestService();
 
   var loading = false.obs;
-  var textController = TextEditingController().obs;
+  var searchController = TextEditingController().obs;
   final saveDownloadPath = Rxn<String>();
   final yt = YoutubeExplode(httpClient: AndroidStreamHttpClient());
   final downloadQueue = DownloadQueue();
   final videos = Rxn<VideoSearchList>();
-
   late SharedPreferences prefs;
+
+  late final PagingController<int, Video> pagingController;
 
   @override
   void onInit() async {
     super.onInit();
     prefs = await SharedPreferences.getInstance();
     saveDownloadPath.value = prefs.getString('downloadPath');
+
+    pagingController = PagingController<int, Video>(
+        getNextPageKey: (PagingState<int, Video> state) =>
+            state.lastPageIsEmpty ? null : state.nextIntPageKey,
+        fetchPage: (int pageKey) async {
+          final currentVideos = videos.value;
+          if (currentVideos == null) {
+            return Future.value([]);
+          }
+          final nextPage = await currentVideos.nextPage();
+          if (nextPage == null) {
+            return Future.value([]);
+          }
+          return nextPage.toList();
+        });
   }
 
   Future<void> getSearchResults() async {
-    textController.refresh();
-    final result =
-        await (yt.search(textController.value.text).asStream()).first;
+    searchController.refresh();
+    String? search;
+    if (searchController.value.text.isEmpty) {
+      search = c.musicList.first.title;
+    }
+    final result = await yt.search(search ?? searchController.value.text,
+        filter: SortFilters.relevance);
     videos.value = result;
     videos.refresh();
+    pagingController.refresh();
   }
 
-  Future<VideoSearchList?> findMusicRecomendation({int videoIndex = 0}) async {
-    assert(videoIndex >= 0);
-
-    final controller = Get.find<LibraryController>();
-    final title = controller.musicList[videoIndex].title;
-    return await yt.search(title ?? "").asStream().first;
-  }
-
-  Future<void> addVideoToQuee(int index, List<Video> listOfVideos) async {
-    late final Video? myVideo;
-
-    if (listOfVideos.isEmpty) {
-      myVideo = videos.value?[index];
-    } else {
-      myVideo = listOfVideos[index];
-    }
-    if (myVideo == null) return;
-
+  Future<void> addVideoToQuee(Video myVideo) async {
     if (saveDownloadPath.value == null) {
       final picked = await pickSavePath();
       if (picked == null) return;

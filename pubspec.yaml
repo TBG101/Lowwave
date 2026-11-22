@@ -51,6 +51,7 @@ dependencies:
   http: ^1.6.0
   google_fonts: ^8.1.0
   sqlite3_flutter_libs: ^0.5.42
+  infinite_scroll_pagination: ^5.1.1
   
 
 dev_dependencies:
