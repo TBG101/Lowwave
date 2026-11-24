@@ -93,7 +93,7 @@ class YoutubeController extends GetxController {
         title: myVideo.title,
         thumbnailUrl: myVideo.thumbnails.mediumResUrl,
       ),
-      () => downloadVideo(myVideo!),
+      () => downloadVideo(myVideo),
     );
   }
 
