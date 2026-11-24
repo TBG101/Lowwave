@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 import 'package:musicplayer/core/utils/utils.dart';
+import 'package:musicplayer/features/youtube/data/youtube_stream_client.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 class DownloadCancelledException implements Exception {
@@ -13,8 +14,19 @@ class DownloadCancelledException implements Exception {
 }
 
 class AudioDownloader {
-  final http.Client _http = http.Client();
+  AudioDownloader({http.Client? httpClient})
+      : _http = httpClient ?? http.Client(),
+        _ownsHttpClient = httpClient == null;
+
+  final http.Client _http;
+  final bool _ownsHttpClient;
   final _log = Logger('AudioDownloader');
+
+  void close() {
+    if (_ownsHttpClient) {
+      _http.close();
+    }
+  }
 
   File prepareFile(String savePath, String title, String extension) {
     final filePath = "$savePath/${Utils.sanitizeFileName('$title.$extension')}";
@@ -33,8 +45,7 @@ class AudioDownloader {
   Future<bool> isServing(StreamInfo stream) async {
     try {
       final response = await _http.head(stream.url, headers: {
-        'user-agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.18 Safari/537.36',
+        'user-agent': AndroidStreamHttpClient.androidUserAgent,
       });
       return response.statusCode < 400;
     } on Exception {
