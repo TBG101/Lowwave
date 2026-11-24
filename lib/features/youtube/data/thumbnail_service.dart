@@ -3,22 +3,29 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:musicplayer/core/utils/utils.dart';
+import 'package:path/path.dart' as p;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 class ThumbnailService {
+  ThumbnailService({http.Client? httpClient}) : _httpClient = httpClient;
+
+  final http.Client? _httpClient;
+
   Future<Uint8List?> _downloadThumbnail(Video video) async {
     final urls = [
       video.thumbnails.maxResUrl,
       video.thumbnails.highResUrl,
       video.thumbnails.standardResUrl,
       video.thumbnails.mediumResUrl,
-      video.thumbnails.standardResUrl,
       video.thumbnails.lowResUrl,
     ];
 
     for (final url in urls) {
       try {
-        final response = await http.get(Uri.parse(url));
+        final uri = Uri.parse(url);
+        final client = _httpClient;
+        final response =
+            client != null ? await client.get(uri) : await http.get(uri);
 
         if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
           return response.bodyBytes;
@@ -32,22 +39,24 @@ class ThumbnailService {
   }
 
   Future<String?> saveThumbnail(
-    Video video,
-    String savePath,
-  ) async {
+    Video video, {
+    Directory? directory,
+  }) async {
     final imgBytes = await _downloadThumbnail(video);
 
     if (imgBytes == null) {
       return null;
     }
 
-    final imgPath = "$savePath/${Utils.sanitizeFileName(video.title)}.jpg";
+    final targetDir = directory ?? Directory.systemTemp;
+    final safeId = Utils.sanitizeFileName(video.id.toString());
+    final imgPath = p.join(
+      targetDir.path,
+      '.cover_${safeId}_${DateTime.now().microsecondsSinceEpoch}.jpg',
+    );
 
     final file = File(imgPath);
-
-    if (!await file.exists()) {
-      await file.writeAsBytes(imgBytes);
-    }
+    await file.writeAsBytes(imgBytes);
 
     return imgPath;
   }

@@ -148,29 +148,41 @@ class YoutubeController extends GetxController {
         videoTitle: myVideo.title,
         thumbnailUrl: myVideo.thumbnails.mediumResUrl,
       );
-      final file = await _thumbnailService.saveThumbnail(
-          myVideo, saveDownloadPath.value!);
+      final coverPath = await _thumbnailService.saveThumbnail(myVideo);
+      final coverFile = coverPath != null ? File(coverPath) : null;
 
-      final mp3File = await _audioConverter.convertToMp3(
-        sourceFile,
-        myVideo.title,
-        saveDownloadPath.value!,
-        duration: myVideo.duration,
-        coverFile: file != null ? File(file) : null,
-        artist: myVideo.author,
-        year: myVideo.publishDate?.year,
-        album: myVideo.musicData.isNotEmpty ? myVideo.musicData[0].album : null,
-        isCancelled: () => downloadQueue.isCancelled(videoId),
-        onProgress: (percent) {
-          notificationManager.showConverting(
-            notificationId: currentNotificationId,
-            videoId: videoId,
-            videoTitle: myVideo.title,
-            percent: percent,
-            thumbnailUrl: myVideo.thumbnails.mediumResUrl,
-          );
-        },
-      );
+      final File mp3File;
+      try {
+        mp3File = await _audioConverter.convertToMp3(
+          sourceFile,
+          myVideo.title,
+          saveDownloadPath.value!,
+          duration: myVideo.duration,
+          coverFile: coverFile,
+          artist: myVideo.author,
+          year: myVideo.publishDate?.year,
+          album:
+              myVideo.musicData.isNotEmpty ? myVideo.musicData[0].album : null,
+          isCancelled: () => downloadQueue.isCancelled(videoId),
+          onProgress: (percent) {
+            notificationManager.showConverting(
+              notificationId: currentNotificationId,
+              videoId: videoId,
+              videoTitle: myVideo.title,
+              percent: percent,
+              thumbnailUrl: myVideo.thumbnails.mediumResUrl,
+            );
+          },
+        );
+      } finally {
+        if (coverFile != null) {
+          try {
+            if (await coverFile.exists()) {
+              await coverFile.delete();
+            }
+          } catch (_) {}
+        }
+      }
 
       if (downloadQueue.isCancelled(videoId)) {
         throw const DownloadCancelledException();
