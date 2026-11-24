@@ -151,6 +151,7 @@ class YoutubeController extends GetxController {
       final file = await _thumbnailService.saveThumbnail(
           myVideo, saveDownloadPath.value!);
 
+      final previousPath = prefs.getString(_downloadedPathKey(videoId));
       final mp3File = await _audioConverter.convertToMp3(
         sourceFile,
         myVideo.title,
@@ -160,6 +161,7 @@ class YoutubeController extends GetxController {
         artist: myVideo.author,
         year: myVideo.publishDate?.year,
         album: myVideo.musicData.isNotEmpty ? myVideo.musicData[0].album : null,
+        replacePath: previousPath,
         isCancelled: () => downloadQueue.isCancelled(videoId),
         onProgress: (percent) {
           notificationManager.showConverting(
@@ -176,12 +178,12 @@ class YoutubeController extends GetxController {
         throw const DownloadCancelledException();
       }
 
-      final previousPath = prefs.getString(_downloadedPathKey(videoId));
       if (previousPath != null && previousPath != mp3File.path) {
         final previousFile = File(previousPath);
         if (await previousFile.exists()) {
           await previousFile.delete();
         }
+        await Utils.androidScanMediaTrigger(previousPath);
       }
       await prefs.setString(_downloadedPathKey(videoId), mp3File.path);
 
