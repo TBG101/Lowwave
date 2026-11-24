@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -51,9 +52,14 @@ class AudioDownloader {
     String title, {
     void Function(int downloadedBytes, int totalBytes)? onProgress,
     bool Function()? isCancelled,
+    Future<void>? cancelSignal,
+    Duration stallTimeout = const Duration(seconds: 60),
   }) async {
     Object? lastError;
     for (final stream in candidateStreams) {
+      if (isCancelled?.call() ?? false) {
+        throw const DownloadCancelledException();
+      }
       final serving = await isServing(stream);
       _log.fine(
           "Stream ${stream.tag} (${stream.container.name}): serving=$serving");
@@ -70,6 +76,8 @@ class AudioDownloader {
           stream.size.totalBytes,
           onProgress: onProgress,
           isCancelled: isCancelled,
+          cancelSignal: cancelSignal,
+          stallTimeout: stallTimeout,
         );
         return sourceFile;
       } on DownloadCancelledException {
@@ -88,9 +96,10 @@ class AudioDownloader {
     int fileLength, {
     void Function(int downloadedBytes, int totalBytes)? onProgress,
     bool Function()? isCancelled,
+    Future<void>? cancelSignal,
+    Duration stallTimeout = const Duration(seconds: 60),
   }) async {
     const maxAttempts = 3;
-    const stallTimeout = Duration(seconds: 60);
 
     Object? lastError;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -106,16 +115,59 @@ class AudioDownloader {
         _log.fine(
             "Attempt $attempt: starting download of ${file.path} with expected size $fileLength bytes");
 
-        try {
-          await for (final data in streamFactory().timeout(stallTimeout)) {
-            if (isCancelled?.call() ?? false) {
-              throw const DownloadCancelledException();
+        StreamSubscription<List<int>>? subscription;
+        Timer? stallTimer;
+        final completer = Completer<void>();
+
+        void resetStallTimer() {
+          stallTimer?.cancel();
+          stallTimer = Timer(stallTimeout, () {
+            if (!completer.isCompleted) {
+              completer.completeError(
+                TimeoutException(
+                    'Stream stalled for $stallTimeout', stallTimeout),
+              );
             }
-            dataDownloaded += data.length;
-            onProgress?.call(dataDownloaded, fileLength);
-            output.add(data);
-          }
+          });
+        }
+
+        try {
+          resetStallTimer();
+          cancelSignal?.then((_) {
+            if (!completer.isCompleted) {
+              completer.completeError(const DownloadCancelledException());
+            }
+          });
+
+          subscription = streamFactory().listen(
+            (data) {
+              if (completer.isCompleted) return;
+              if (isCancelled?.call() ?? false) {
+                completer.completeError(const DownloadCancelledException());
+                return;
+              }
+              resetStallTimer();
+              dataDownloaded += data.length;
+              onProgress?.call(dataDownloaded, fileLength);
+              output.add(data);
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (!completer.isCompleted) {
+                completer.completeError(error, stackTrace);
+              }
+            },
+            onDone: () {
+              if (!completer.isCompleted) {
+                completer.complete();
+              }
+            },
+            cancelOnError: true,
+          );
+
+          await completer.future;
         } finally {
+          stallTimer?.cancel();
+          await subscription?.cancel();
           await output.close();
         }
 

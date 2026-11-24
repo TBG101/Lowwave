@@ -62,7 +62,8 @@ class DownloadsPage extends StatelessWidget {
               final hasFinished = downloadQueue.tasks.any(
                 (task) =>
                     task.status == DownloadStatus.completed ||
-                    task.status == DownloadStatus.failed,
+                    task.status == DownloadStatus.failed ||
+                    task.status == DownloadStatus.cancelled,
               );
               if (hasFinished) {
                 downloadQueue.clearFinished();

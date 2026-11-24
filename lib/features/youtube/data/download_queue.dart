@@ -11,15 +11,18 @@ class DownloadQueue {
     return _instance;
   }
 
+  @visibleForTesting
+  DownloadQueue.forTesting();
+
   final RxList<DownloadTask> tasks = <DownloadTask>[].obs;
-  final List<(String videoId, Future<void> Function() action)> _pending = [];
-  final Set<String> _cancelRequested = {};
+  final List<(DownloadTask task, Future<void> Function() action)> _pending = [];
   bool downloading = false;
 
   void addTask(DownloadTask task, Future<void> Function() action) {
     tasks.removeWhere((t) => t.videoId == task.videoId);
+    _pending.removeWhere((entry) => entry.$1.videoId == task.videoId);
     tasks.add(task);
-    _pending.add((task.videoId, action));
+    _pending.add((task, action));
     startQuee();
   }
 
@@ -27,33 +30,31 @@ class DownloadQueue {
     if (downloading == true) return;
     downloading = true;
     while (_pending.isNotEmpty) {
-      final (videoId, action) = _pending.removeAt(0);
+      final (task, action) = _pending.removeAt(0);
+      if (task.cancelToken.isCancelled) continue;
       try {
         await action();
       } catch (e) {
         debugPrint('Download task crashed: $e');
-      } finally {
-        _cancelRequested.remove(videoId);
       }
     }
     downloading = false;
   }
 
-  bool isCancelled(String videoId) => _cancelRequested.contains(videoId);
+  bool isCancelled(String videoId) =>
+      byVideoId(videoId)?.cancelToken.isCancelled ?? false;
 
   void cancelTask(String videoId) {
-    _pending.removeWhere((entry) => entry.$1 == videoId);
     final task = byVideoId(videoId);
     if (task == null) return;
-    final activeStatuses = {
+    const activeStatuses = {
       DownloadStatus.queued,
       DownloadStatus.downloading,
       DownloadStatus.converting,
     };
     if (!activeStatuses.contains(task.status)) return;
-    if (task.status != DownloadStatus.queued) {
-      _cancelRequested.add(videoId);
-    }
+    _pending.removeWhere((entry) => identical(entry.$1, task));
+    task.cancelToken.cancel();
     task.status = DownloadStatus.cancelled;
     tasks.refresh();
   }
@@ -65,28 +66,35 @@ class DownloadQueue {
     return null;
   }
 
-  void setStatus(String videoId, DownloadStatus status) {
-    final task = byVideoId(videoId);
-    if (task == null) return;
-    task.status = status;
+  void setStatus(String videoId, DownloadStatus status, {DownloadTask? task}) {
+    final current = byVideoId(videoId);
+    if (current == null) return;
+    if (task != null && !identical(current, task)) return;
+    current.status = status;
     tasks.refresh();
   }
 
-  void updateProgress(String videoId,
-      {int? percent, int? downloadedBytes, int? totalBytes}) {
-    final task = byVideoId(videoId);
-    if (task == null) return;
+  void updateProgress(
+    String videoId, {
+    DownloadTask? task,
+    int? percent,
+    int? downloadedBytes,
+    int? totalBytes,
+  }) {
+    final current = byVideoId(videoId);
+    if (current == null) return;
+    if (task != null && !identical(current, task)) return;
     var changed = false;
-    if (percent != null && task.progress != percent) {
-      task.progress = percent;
+    if (percent != null && current.progress != percent) {
+      current.progress = percent;
       changed = true;
     }
-    if (downloadedBytes != null && task.downloadedBytes != downloadedBytes) {
-      task.downloadedBytes = downloadedBytes;
+    if (downloadedBytes != null && current.downloadedBytes != downloadedBytes) {
+      current.downloadedBytes = downloadedBytes;
       changed = true;
     }
-    if (totalBytes != null && task.totalBytes != totalBytes) {
-      task.totalBytes = totalBytes;
+    if (totalBytes != null && current.totalBytes != totalBytes) {
+      current.totalBytes = totalBytes;
       changed = true;
     }
     if (changed) tasks.refresh();
