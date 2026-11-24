@@ -87,22 +87,33 @@ class YoutubeController extends GetxController {
     final existing = downloadQueue.byVideoId(myVideo.id.toString());
     if (existing != null && activeStatuses.contains(existing.status)) return;
 
+    final task = DownloadTask(
+      videoId: myVideo.id.toString(),
+      title: myVideo.title,
+      thumbnailUrl: myVideo.thumbnails.mediumResUrl,
+    );
     downloadQueue.addTask(
-      DownloadTask(
-        videoId: myVideo.id.toString(),
-        title: myVideo.title,
-        thumbnailUrl: myVideo.thumbnails.mediumResUrl,
-      ),
-      () => downloadVideo(myVideo),
+      task,
+      () => downloadVideo(myVideo, task: task),
     );
   }
 
-  Future<void> downloadVideo(Video myVideo) async {
+  Future<void> downloadVideo(Video myVideo, {DownloadTask? task}) async {
     final videoId = myVideo.id.toString();
     final currentNotificationId =
         NotificationManager.notificationIdForVideo(videoId);
+    bool isTaskCancelled() => task != null
+        ? task.cancelToken.isCancelled
+        : downloadQueue.isCancelled(videoId);
+    final cancelSignal = task?.cancelToken.onCancel;
+    bool ownsNotification() =>
+        task == null || identical(downloadQueue.byVideoId(videoId), task);
+
     try {
-      downloadQueue.setStatus(videoId, DownloadStatus.downloading);
+      if (isTaskCancelled()) {
+        throw const DownloadCancelledException();
+      }
+      downloadQueue.setStatus(videoId, DownloadStatus.downloading, task: task);
       notificationManager.showDownloadProgress(
         notificationId: currentNotificationId,
         videoId: videoId,
@@ -112,23 +123,30 @@ class YoutubeController extends GetxController {
       );
 
       final manifest = await yt.videos.streamsClient.getManifest(myVideo.id);
+      if (isTaskCancelled()) {
+        throw const DownloadCancelledException();
+      }
       final candidates = _manifestService.selectAudioSources(manifest);
       final sourceFile = await _audioDownloader.downloadFirstAvailable(
         candidates,
         (streamInfo) => yt.videos.streamsClient.get(streamInfo),
         saveDownloadPath.value!,
         myVideo.title,
-        isCancelled: () => downloadQueue.isCancelled(videoId),
+        isCancelled: isTaskCancelled,
+        cancelSignal: cancelSignal,
         onProgress: (downloadedBytes, totalBytes) {
           final progress = totalBytes > 0
               ? ((downloadedBytes / totalBytes) * 100).clamp(0, 100).toInt()
               : 0;
           _log.fine(
               "Download progress: $downloadedBytes of $totalBytes bytes ($progress%)");
-          downloadQueue.updateProgress(videoId,
-              percent: progress,
-              downloadedBytes: downloadedBytes,
-              totalBytes: totalBytes);
+          downloadQueue.updateProgress(
+            videoId,
+            task: task,
+            percent: progress,
+            downloadedBytes: downloadedBytes,
+            totalBytes: totalBytes,
+          );
           notificationManager.showDownloadProgress(
             notificationId: currentNotificationId,
             videoId: videoId,
@@ -141,7 +159,7 @@ class YoutubeController extends GetxController {
         },
       );
 
-      downloadQueue.setStatus(videoId, DownloadStatus.converting);
+      downloadQueue.setStatus(videoId, DownloadStatus.converting, task: task);
       notificationManager.showConverting(
         notificationId: currentNotificationId,
         videoId: videoId,
@@ -160,7 +178,7 @@ class YoutubeController extends GetxController {
         artist: myVideo.author,
         year: myVideo.publishDate?.year,
         album: myVideo.musicData.isNotEmpty ? myVideo.musicData[0].album : null,
-        isCancelled: () => downloadQueue.isCancelled(videoId),
+        isCancelled: isTaskCancelled,
         onProgress: (percent) {
           notificationManager.showConverting(
             notificationId: currentNotificationId,
@@ -172,7 +190,7 @@ class YoutubeController extends GetxController {
         },
       );
 
-      if (downloadQueue.isCancelled(videoId)) {
+      if (isTaskCancelled()) {
         throw const DownloadCancelledException();
       }
 
@@ -189,7 +207,7 @@ class YoutubeController extends GetxController {
 
       await c.addNewSong();
 
-      downloadQueue.setStatus(videoId, DownloadStatus.completed);
+      downloadQueue.setStatus(videoId, DownloadStatus.completed, task: task);
       notificationManager.showDownloadFinished(
         notificationId: currentNotificationId,
         videoId: videoId,
@@ -198,17 +216,28 @@ class YoutubeController extends GetxController {
         thumbnailUrl: myVideo.thumbnails.mediumResUrl,
       );
     } on DownloadCancelledException {
-      downloadQueue.setStatus(videoId, DownloadStatus.cancelled);
-      await notificationManager.dismissDownload(currentNotificationId);
+      downloadQueue.setStatus(videoId, DownloadStatus.cancelled, task: task);
+      if (ownsNotification()) {
+        await notificationManager.dismissDownload(currentNotificationId);
+      }
     } catch (e) {
-      downloadQueue.setStatus(videoId, DownloadStatus.failed);
-      notificationManager.showDownloadFailed(
-        notificationId: currentNotificationId,
-        videoId: videoId,
-        videoTitle: myVideo.title,
-        error: e.toString(),
-        thumbnailUrl: myVideo.thumbnails.mediumResUrl,
-      );
+      if (isTaskCancelled()) {
+        downloadQueue.setStatus(videoId, DownloadStatus.cancelled, task: task);
+        if (ownsNotification()) {
+          await notificationManager.dismissDownload(currentNotificationId);
+        }
+        return;
+      }
+      downloadQueue.setStatus(videoId, DownloadStatus.failed, task: task);
+      if (ownsNotification()) {
+        notificationManager.showDownloadFailed(
+          notificationId: currentNotificationId,
+          videoId: videoId,
+          videoTitle: myVideo.title,
+          error: e.toString(),
+          thumbnailUrl: myVideo.thumbnails.mediumResUrl,
+        );
+      }
     }
   }
 
