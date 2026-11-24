@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:musicplayer/core/services/media_scanner.dart';
 
@@ -7,15 +8,27 @@ class Utils {
     await MediaScanner.scanFile(mp3FilePath);
   }
 
-  static String sanitizeFileName(String input) {
+  static String sanitizeFileName(String input, {int maxBytes = 255}) {
     final invalidChars = RegExp(r'[<>:"/\\|?*]');
-    String sanitized = input.replaceAll(invalidChars, '_');
+    final sanitized = input.replaceAll(invalidChars, '_');
 
-    if (sanitized.length > 255) {
-      sanitized = sanitized.substring(0, 255);
+    if (utf8.encode(sanitized).length <= maxBytes) {
+      return sanitized;
     }
 
-    return sanitized;
+    final buffer = StringBuffer();
+    var byteCount = 0;
+    for (final rune in sanitized.runes) {
+      final char = String.fromCharCode(rune);
+      final charBytes = utf8.encode(char).length;
+      if (byteCount + charBytes > maxBytes) {
+        break;
+      }
+      buffer.write(char);
+      byteCount += charBytes;
+    }
+
+    return buffer.toString();
   }
 
   static Future<void> deleteMusicUri(Uri uri) async {

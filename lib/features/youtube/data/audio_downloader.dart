@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 import 'package:musicplayer/core/utils/utils.dart';
+import 'package:path/path.dart' as p;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 class DownloadCancelledException implements Exception {
@@ -17,7 +19,10 @@ class AudioDownloader {
   final _log = Logger('AudioDownloader');
 
   File prepareFile(String savePath, String title, String extension) {
-    final filePath = "$savePath/${Utils.sanitizeFileName('$title.$extension')}";
+    final safeExt = Utils.sanitizeFileName(extension, maxBytes: 16);
+    final maxTitleBytes = (255 - utf8.encode(safeExt).length - 1).clamp(1, 255);
+    final safeTitle = Utils.sanitizeFileName(title, maxBytes: maxTitleBytes);
+    final filePath = p.join(savePath, '$safeTitle.$safeExt');
     final file = File(filePath);
 
     if (file.existsSync()) {

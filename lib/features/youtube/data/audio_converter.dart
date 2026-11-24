@@ -3,7 +3,9 @@ import 'dart:io';
 
 import 'package:ffmpeg_kit_flutter_new_audio/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/return_code.dart';
+import 'package:flutter/foundation.dart';
 import 'package:musicplayer/core/utils/utils.dart';
+import 'package:path/path.dart' as p;
 
 import 'audio_downloader.dart';
 
@@ -19,6 +21,7 @@ class AudioConverter {
     int? trackNumber,
     int? year,
     Duration? duration,
+    String? replacePath,
     void Function(int percent)? onProgress,
     bool Function()? isCancelled,
   }) async {
@@ -26,8 +29,8 @@ class AudioConverter {
       throw const DownloadCancelledException();
     }
 
-    final baseName = Utils.sanitizeFileName(title);
-    final tempFile = File('$savePath/.$baseName.part.mp3');
+    final baseName = Utils.sanitizeFileName(title, maxBytes: 240);
+    final tempFile = File(p.join(savePath, '.$baseName.part.mp3'));
 
     if (await tempFile.exists()) {
       await tempFile.delete();
@@ -167,7 +170,11 @@ class AudioConverter {
         throw const DownloadCancelledException();
       }
 
-      final mp3File = await _uniqueTarget(savePath, baseName);
+      final mp3File = await resolveTargetFile(
+        savePath,
+        baseName,
+        replacePath: replacePath,
+      );
 
       await tempFile.rename(mp3File.path);
       await _deleteQuietly(sourceFile);
@@ -183,15 +190,28 @@ class AudioConverter {
     }
   }
 
+  @visibleForTesting
+  Future<File> resolveTargetFile(
+    String savePath,
+    String baseName, {
+    String? replacePath,
+  }) async {
+    final preferred = File(p.join(savePath, '$baseName.mp3'));
+    if (replacePath != null && p.equals(replacePath, preferred.path)) {
+      return preferred;
+    }
+    return _uniqueTarget(savePath, baseName);
+  }
+
   Future<File> _uniqueTarget(
     String savePath,
     String baseName,
   ) async {
-    var candidate = File('$savePath/$baseName.mp3');
+    var candidate = File(p.join(savePath, '$baseName.mp3'));
     var suffix = 2;
 
     while (await candidate.exists()) {
-      candidate = File('$savePath/$baseName ($suffix).mp3');
+      candidate = File(p.join(savePath, '$baseName ($suffix).mp3'));
       suffix++;
     }
 
