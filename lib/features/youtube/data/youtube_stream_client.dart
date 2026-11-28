@@ -9,11 +9,13 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 /// download never progresses. Matching the user agent of the client that
 /// produced the manifest makes googlevideo serve the bytes.
 class AndroidStreamHttpClient extends YoutubeHttpClient {
+  static const androidUserAgent =
+      'com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip';
+
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     if (request.url.host.endsWith('googlevideo.com')) {
-      request.headers['user-agent'] =
-          'com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip';
+      request.headers['user-agent'] = androidUserAgent;
     }
     return super.send(request);
   }

@@ -234,6 +234,7 @@ class YoutubeController extends GetxController {
 
   @override
   void onClose() {
+    _audioDownloader.close();
     yt.close();
     super.onClose();
   }
