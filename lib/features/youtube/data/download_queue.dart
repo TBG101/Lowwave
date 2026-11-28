@@ -11,6 +11,9 @@ class DownloadQueue {
     return _instance;
   }
 
+  @visibleForTesting
+  DownloadQueue.forTesting();
+
   final RxList<DownloadTask> tasks = <DownloadTask>[].obs;
   final List<(String videoId, Future<void> Function() action)> _pending = [];
   final Set<String> _cancelRequested = {};
@@ -76,20 +79,21 @@ class DownloadQueue {
       {int? percent, int? downloadedBytes, int? totalBytes}) {
     final task = byVideoId(videoId);
     if (task == null) return;
-    var changed = false;
+    var shouldNotify = false;
     if (percent != null && task.progress != percent) {
       task.progress = percent;
-      changed = true;
+      shouldNotify = true;
     }
-    if (downloadedBytes != null && task.downloadedBytes != downloadedBytes) {
+    if (downloadedBytes != null) {
       task.downloadedBytes = downloadedBytes;
-      changed = true;
     }
     if (totalBytes != null && task.totalBytes != totalBytes) {
+      if (task.totalBytes == 0 && totalBytes > 0) {
+        shouldNotify = true;
+      }
       task.totalBytes = totalBytes;
-      changed = true;
     }
-    if (changed) tasks.refresh();
+    if (shouldNotify) tasks.refresh();
   }
 
   void clearFinished() {
